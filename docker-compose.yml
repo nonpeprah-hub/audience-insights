@@ -1,0 +1,91 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: audienceinsights-db
+    environment:
+      POSTGRES_USER: audience
+      POSTGRES_PASSWORD: insight123
+      POSTGRES_DB: audienceinsights
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - audienceinsights-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audience"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/audienceinsights
+      SPRING_DATASOURCE_USERNAME: audience
+      SPRING_DATASOURCE_PASSWORD: insight123
+      JWT_SECRET: your-secret-key-change-in-production
+      SERVER_PORT: 8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - audienceinsights-network
+  analytics-service:
+    build:
+      context: ./backend/analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/audienceinsights
+      SPRING_DATASOURCE_USERNAME: audience
+      SPRING_DATASOURCE_PASSWORD: insight123
+      SERVER_PORT: 8002
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - audienceinsights-network
+  notification-service:
+    build:
+      context: ./backend/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/audienceinsights
+      SPRING_DATASOURCE_USERNAME: audience
+      SPRING_DATASOURCE_PASSWORD: insight123
+      SERVER_PORT: 8003
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - audienceinsights-network
+  api-gateway:
+    image: nginx:alpine
+    container_name: api-gateway
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth-service
+      - analytics-service
+      - notification-service
+    networks:
+      - audienceinsights-network
+networks:
+  audienceinsights-network:
+    driver: bridge
+volumes:
+  postgres_data:
